@@ -33,8 +33,8 @@ object AdManager {
     const val TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
 
     const val REAL_APP_ID = "ca-app-pub-7584087725069099~5449667520"
-    const val REAL_BANNER_ID = "ca-app-pub-7584087725069099/8154712759"
-    const val REAL_INTERSTITIAL_ID = "ca-app-pub-7584087725069099/1322545249"
+    const val REAL_BANNER_ID = "ca-app-pub-7584087725069099/8487278849"
+    const val REAL_INTERSTITIAL_ID = "ca-app-pub-7584087725069099/7969559042"
     const val REAL_REWARDED_ID = "ca-app-pub-7584087725069099/3640752672"
 
     val APP_ID: String get() = if (USE_TEST_ADS) TEST_APP_ID else REAL_APP_ID

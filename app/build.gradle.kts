@@ -11,8 +11,8 @@ android {
         applicationId = "com.aistudio.omnitools.xkrvp"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "2.4"
+        versionCode = 7
+        versionName = "2.5"
         multiDexEnabled = true
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

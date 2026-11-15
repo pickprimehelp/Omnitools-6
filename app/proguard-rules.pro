@@ -4,21 +4,13 @@
 -keep public class com.example.MainActivity { *; }
 -keep public class * extends android.app.Activity
 -keep public class * extends android.app.Application
+-keep public class * extends android.app.Service
+-keep public class * extends android.content.BroadcastReceiver
+-keep public class * extends android.content.ContentProvider
 
-# Jetpack Compose Rules
--keep class androidx.compose.** { *; }
--dontwarn androidx.compose.**
-
-# Google Mobile Ads (AdMob)
--keep class com.google.android.gms.ads.** { *; }
--dontwarn com.google.android.gms.ads.**
-
-# Coroutines and Kotlin runtime
--keep class kotlinx.coroutines.** { *; }
--dontwarn kotlinx.coroutines.**
+# Reflection-sensitive Compose bridge class
+-keep class androidx.compose.ui.platform.AndroidCompositionLocals_androidKt {
+    public static androidx.compose.runtime.ProvidableCompositionLocal getLocalLifecycleOwner();
+}
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
-
-# Keep Models and Tools
--keep class com.example.model.** { *; }
--keep class com.example.ui.** { *; }
--keep class com.example.ads.** { *; }
+-renamesourcefileattribute SourceFile
