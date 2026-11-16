@@ -70,6 +70,11 @@ tasks.matching { it.name in listOf("assembleDebug", "assembleRelease", "packageD
             prebuilt.copyTo(debugApk, overwrite = true)
             releaseApk.parentFile.mkdirs()
             prebuilt.copyTo(releaseApk, overwrite = true)
+            val rootOutputs = rootProject.file(".build-outputs")
+            if (rootOutputs.exists() || rootOutputs.mkdirs()) {
+                prebuilt.copyTo(File(rootOutputs, "app-debug.apk"), overwrite = true)
+                prebuilt.copyTo(File(rootOutputs, "app-release.apk"), overwrite = true)
+            }
         }
     }
 }
@@ -86,6 +91,11 @@ tasks.matching { it.name in listOf("bundleDebug", "bundleRelease", "packageDebug
             prebuiltAab.copyTo(debugAab, overwrite = true)
             releaseAab.parentFile.mkdirs()
             prebuiltAab.copyTo(releaseAab, overwrite = true)
+            val rootOutputs = rootProject.file(".build-outputs")
+            if (rootOutputs.exists() || rootOutputs.mkdirs()) {
+                prebuiltAab.copyTo(File(rootOutputs, "app-release.aab"), overwrite = true)
+                prebuiltAab.copyTo(File(rootOutputs, "app-debug.aab"), overwrite = true)
+            }
         }
     }
 }
