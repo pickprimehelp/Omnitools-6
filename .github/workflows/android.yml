@@ -61,7 +61,7 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: omnitools-v2.2-apk
+          name: omnitools-v2.5-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -69,7 +69,7 @@ jobs:
       - name: Upload Single AAB Play Store Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: omnitools-v2.2-aab-playstore
+          name: omnitools-v2.5-aab-playstore
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 30
@@ -81,3 +81,16 @@ jobs:
           path: upload_certificate.pem
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish Public Release Downloads
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk OmniTools-v2.5.apk
+          cp app/build/outputs/bundle/release/app-release.aab OmniTools-v2.5-playstore.aab
+          if gh release view v2.5 >/dev/null 2>&1; then
+            gh release upload v2.5 OmniTools-v2.5.apk OmniTools-v2.5-playstore.aab upload_certificate.pem --clobber
+          else
+            gh release create v2.5 OmniTools-v2.5.apk OmniTools-v2.5-playstore.aab upload_certificate.pem --title "OmniTools v2.5 (Build 7)" --notes "Fixed startup crash and configured production AdMob IDs." --latest
+          fi
