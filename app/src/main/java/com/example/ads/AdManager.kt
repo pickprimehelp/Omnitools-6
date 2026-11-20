@@ -1,3 +1,4 @@
+
 package com.example.ads
 
 import android.app.Activity
@@ -6,12 +7,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -29,219 +28,251 @@ import com.google.android.gms.ads.rewarded.RewardedAd
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
 object AdManager {
+
     private const val TAG = "OmniToolsAds"
-    const val USE_TEST_ADS = false
 
-    const val TEST_APP_ID = "ca-app-pub-3940256099942544~3347511713"
-    const val TEST_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
-    const val TEST_INTERSTITIAL_ID = "ca-app-pub-3940256099942544/1033173712"
-    const val TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
+    const val APP_ID =
+        "ca-app-pub-7584087725069099~5449667520"
 
-    const val REAL_APP_ID = "ca-app-pub-7584087725069099~5449667520"
-    const val REAL_BANNER_ID = "ca-app-pub-7584087725069099/8487278849"
-    const val REAL_INTERSTITIAL_ID = "ca-app-pub-7584087725069099/7969559042"
-    const val REAL_REWARDED_ID = "ca-app-pub-7584087725069099/3640752672"
+    const val BANNER_ID =
+        "ca-app-pub-7584087725069099/8487278849"
 
-    val APP_ID: String get() = if (USE_TEST_ADS) TEST_APP_ID else REAL_APP_ID
-    val BANNER_ID: String get() = if (USE_TEST_ADS) TEST_BANNER_ID else REAL_BANNER_ID
-    val INTERSTITIAL_ID: String get() = if (USE_TEST_ADS) TEST_INTERSTITIAL_ID else REAL_INTERSTITIAL_ID
-    val REWARDED_ID: String get() = if (USE_TEST_ADS) TEST_REWARDED_ID else REAL_REWARDED_ID
+    const val INTERSTITIAL_ID =
+        "ca-app-pub-7584087725069099/7969559042"
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    const val REWARDED_ID =
+        "ca-app-pub-7584087725069099/3640752672"
+
+    private val handler = Handler(Looper.getMainLooper())
+
     private var appContext: Context? = null
-    private val isSdkInitializedState = mutableStateOf(false)
-    val isSdkInitialized: Boolean get() = isSdkInitializedState.value
+    private var initialized = false
+    private var initializing = false
 
-    private var isInitializing = false
     private var interstitialAd: InterstitialAd? = null
     private var rewardedAd: RewardedAd? = null
-    private var isInterstitialLoading = false
-    private var isRewardedLoading = false
-    private var interstitialRetryAttempt = 0
-    private var rewardedRetryAttempt = 0
 
-    private var lastInterstitialShownTime: Long = 0L
-    private var screenChangeCount: Int = 0
+    private var interstitialLoading = false
+    private var rewardedLoading = false
 
-    // Balanced AdMob cadence: reliable fill & UX without starving impressions
-    private const val INTERSTITIAL_COOLDOWN_MS = 45000L
-    private const val FORCED_INTERSTITIAL_COOLDOWN_MS = 15000L
+    private var interstitialRetries = 0
+    private var rewardedRetries = 0
+
+    private var lastInterstitialTime = 0L
+    private var screenChangeCount = 0
+
+    private const val INTERSTITIAL_COOLDOWN = 45000L
+    private const val FORCED_COOLDOWN = 15000L
     private const val SCREENS_BETWEEN_ADS = 2
 
     private fun runOnMain(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             action()
         } else {
-            mainHandler.post(action)
+            handler.post(action)
         }
     }
 
     fun initialize(context: Context) {
-        val safeCtx = context.applicationContext ?: context
-        appContext = safeCtx
-        if (isSdkInitializedState.value || isInitializing) return
-        isInitializing = true
+        val safeContext = context.applicationContext
+        appContext = safeContext
 
-        // Safety fallback if Play Services delays or suppresses init callback
-        mainHandler.postDelayed({
-            if (!isSdkInitializedState.value) {
-                isSdkInitializedState.value = true
-                preloadInterstitial(safeCtx)
-                preloadRewarded(safeCtx)
-            }
-        }, 2500L)
+        if (initialized || initializing) return
+
+        initializing = true
 
         try {
-            MobileAds.initialize(safeCtx) {
+            MobileAds.initialize(safeContext) {
                 runOnMain {
-                    isInitializing = false
-                    isSdkInitializedState.value = true
-                    Log.d(TAG, "MobileAds initialized successfully")
-                    preloadInterstitial(safeCtx)
-                    preloadRewarded(safeCtx)
+                    initializing = false
+                    initialized = true
+
+                    Log.d(TAG, "AdMob initialized")
+
+                    preloadInterstitial(safeContext)
+                    preloadRewarded(safeContext)
                 }
             }
-        } catch (t: Throwable) {
-            isInitializing = false
-            isSdkInitializedState.value = true
-            Log.e(TAG, "Error initializing MobileAds", t)
+        } catch (e: Exception) {
+            initializing = false
+            Log.e(TAG, "Initialization error", e)
         }
     }
 
     fun preloadInterstitial(context: Context) {
-        val safeCtx = context.applicationContext ?: context
-        appContext = safeCtx
+        val safeContext = context.applicationContext
+        appContext = safeContext
+
         runOnMain {
-            if (interstitialAd != null || isInterstitialLoading) return@runOnMain
-            isInterstitialLoading = true
+            if (!initialized ||
+                interstitialAd != null ||
+                interstitialLoading
+            ) return@runOnMain
+
+            interstitialLoading = true
+
             try {
-                val adRequest = AdRequest.Builder().build()
                 InterstitialAd.load(
-                    safeCtx,
+                    safeContext,
                     INTERSTITIAL_ID,
-                    adRequest,
+                    AdRequest.Builder().build(),
                     object : InterstitialAdLoadCallback() {
+
                         override fun onAdLoaded(ad: InterstitialAd) {
                             interstitialAd = ad
-                            isInterstitialLoading = false
-                            interstitialRetryAttempt = 0
+                            interstitialLoading = false
+                            interstitialRetries = 0
+
                             Log.d(TAG, "Interstitial loaded")
                         }
 
-                        override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        override fun onAdFailedToLoad(error: LoadAdError) {
                             interstitialAd = null
-                            isInterstitialLoading = false
-                            Log.w(TAG, "Interstitial failed (${loadAdError.code}): ${loadAdError.message}")
-                            if (interstitialRetryAttempt < 3) {
-                                val delayMs = when (interstitialRetryAttempt) {
-                                    0 -> 6000L
-                                    1 -> 15000L
-                                    else -> 35000L
-                                }
-                                interstitialRetryAttempt++
-                                val retryCtx = appContext ?: safeCtx
-                                mainHandler.postDelayed({ preloadInterstitial(retryCtx) }, delayMs)
-                            }
+                            interstitialLoading = false
+
+                            Log.e(TAG, "Interstitial error: ${error.message}")
+
+                            retryInterstitial()
                         }
                     }
                 )
-            } catch (t: Throwable) {
-                isInterstitialLoading = false
-                Log.e(TAG, "Interstitial load exception", t)
+            } catch (e: Exception) {
+                interstitialLoading = false
+                Log.e(TAG, "Interstitial exception", e)
+                retryInterstitial()
             }
         }
+    }
+
+    private fun retryInterstitial() {
+        if (interstitialRetries >= 4) return
+
+        val delays = longArrayOf(6000L, 15000L, 35000L, 60000L)
+        val delay = delays[interstitialRetries++]
+
+        handler.postDelayed({
+            appContext?.let { preloadInterstitial(it) }
+        }, delay)
     }
 
     fun preloadRewarded(context: Context) {
-        val safeCtx = context.applicationContext ?: context
-        appContext = safeCtx
+        val safeContext = context.applicationContext
+        appContext = safeContext
+
         runOnMain {
-            if (rewardedAd != null || isRewardedLoading) return@runOnMain
-            isRewardedLoading = true
+            if (!initialized ||
+                rewardedAd != null ||
+                rewardedLoading
+            ) return@runOnMain
+
+            rewardedLoading = true
+
             try {
-                val adRequest = AdRequest.Builder().build()
                 RewardedAd.load(
-                    safeCtx,
+                    safeContext,
                     REWARDED_ID,
-                    adRequest,
+                    AdRequest.Builder().build(),
                     object : RewardedAdLoadCallback() {
+
                         override fun onAdLoaded(ad: RewardedAd) {
                             rewardedAd = ad
-                            isRewardedLoading = false
-                            rewardedRetryAttempt = 0
+                            rewardedLoading = false
+                            rewardedRetries = 0
+
                             Log.d(TAG, "Rewarded ad loaded")
                         }
 
-                        override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        override fun onAdFailedToLoad(error: LoadAdError) {
                             rewardedAd = null
-                            isRewardedLoading = false
-                            Log.w(TAG, "Rewarded failed (${loadAdError.code}): ${loadAdError.message}")
-                            if (rewardedRetryAttempt < 3) {
-                                val delayMs = when (rewardedRetryAttempt) {
-                                    0 -> 6000L
-                                    1 -> 15000L
-                                    else -> 35000L
-                                }
-                                rewardedRetryAttempt++
-                                val retryCtx = appContext ?: safeCtx
-                                mainHandler.postDelayed({ preloadRewarded(retryCtx) }, delayMs)
-                            }
+                            rewardedLoading = false
+
+                            Log.e(TAG, "Rewarded error: ${error.message}")
+
+                            retryRewarded()
                         }
                     }
                 )
-            } catch (t: Throwable) {
-                isRewardedLoading = false
-                Log.e(TAG, "Rewarded load exception", t)
+            } catch (e: Exception) {
+                rewardedLoading = false
+                Log.e(TAG, "Rewarded exception", e)
+                retryRewarded()
             }
         }
     }
 
-    @JvmOverloads
+    private fun retryRewarded() {
+        if (rewardedRetries >= 4) return
+
+        val delays = longArrayOf(6000L, 15000L, 35000L, 60000L)
+        val delay = delays[rewardedRetries++]
+
+        handler.postDelayed({
+            appContext?.let { preloadRewarded(it) }
+        }, delay)
+    }
+
     fun showInterstitialIfReady(
         activity: Activity,
         forceShow: Boolean = false,
         onDismissed: () -> Unit
     ) {
-        interstitialRetryAttempt = 0
-        screenChangeCount++
-        val now = System.currentTimeMillis()
-        val elapsed = now - lastInterstitialShownTime
-        val shouldShow = if (forceShow) {
-            lastInterstitialShownTime == 0L || elapsed > FORCED_INTERSTITIAL_COOLDOWN_MS
-        } else {
-            (lastInterstitialShownTime == 0L || elapsed > INTERSTITIAL_COOLDOWN_MS) &&
-                screenChangeCount >= SCREENS_BETWEEN_ADS
-        }
+        runOnMain {
+            screenChangeCount++
 
-        val ad = interstitialAd
-        if (ad != null && shouldShow && !activity.isFinishing && !activity.isDestroyed) {
-            try {
-                ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastInterstitialTime
+
+            val shouldShow = if (forceShow) {
+                lastInterstitialTime == 0L ||
+                    elapsed >= FORCED_COOLDOWN
+            } else {
+                (lastInterstitialTime == 0L ||
+                    elapsed >= INTERSTITIAL_COOLDOWN) &&
+                    screenChangeCount >= SCREENS_BETWEEN_ADS
+            }
+
+            val ad = interstitialAd
+
+            if (ad == null ||
+                !shouldShow ||
+                activity.isFinishing ||
+                activity.isDestroyed
+            ) {
+                appContext?.let { preloadInterstitial(it) }
+                onDismissed()
+                return@runOnMain
+            }
+
+            interstitialAd = null
+
+            ad.fullScreenContentCallback =
+                object : FullScreenContentCallback() {
+
                     override fun onAdDismissedFullScreenContent() {
-                        interstitialAd = null
-                        lastInterstitialShownTime = System.currentTimeMillis()
+                        lastInterstitialTime = System.currentTimeMillis()
                         screenChangeCount = 0
-                        preloadInterstitial(activity)
+
+                        appContext?.let { preloadInterstitial(it) }
                         onDismissed()
                     }
 
-                    override fun onAdFailedToShowFullScreenContent(adError: AdError) {
-                        Log.w(TAG, "Interstitial failed to show: ${adError.message}")
-                        interstitialAd = null
-                        preloadInterstitial(activity)
+                    override fun onAdFailedToShowFullScreenContent(
+                        error: AdError
+                    ) {
+                        Log.e(TAG, "Interstitial show error: ${error.message}")
+
+                        appContext?.let { preloadInterstitial(it) }
                         onDismissed()
                     }
                 }
+
+            try {
                 ad.show(activity)
-            } catch (t: Throwable) {
-                Log.e(TAG, "Error showing interstitial", t)
-                interstitialAd = null
-                preloadInterstitial(activity)
+            } catch (e: Exception) {
+                Log.e(TAG, "Interstitial show exception", e)
+                appContext?.let { preloadInterstitial(it) }
                 onDismissed()
             }
-        } else {
-            preloadInterstitial(activity)
-            onDismissed()
         }
     }
 
@@ -250,51 +281,67 @@ object AdManager {
         onRewardEarned: () -> Unit,
         onDismissed: () -> Unit
     ) {
-        rewardedRetryAttempt = 0
-        val ad = rewardedAd
-        if (ad != null && !activity.isFinishing && !activity.isDestroyed) {
-            try {
-                ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+        runOnMain {
+            val ad = rewardedAd
+
+            if (ad == null ||
+                activity.isFinishing ||
+                activity.isDestroyed
+            ) {
+                appContext?.let { preloadRewarded(it) }
+                onDismissed()
+                return@runOnMain
+            }
+
+            rewardedAd = null
+
+            var rewardEarned = false
+
+            ad.fullScreenContentCallback =
+                object : FullScreenContentCallback() {
+
                     override fun onAdDismissedFullScreenContent() {
-                        rewardedAd = null
-                        preloadRewarded(activity)
+                        appContext?.let { preloadRewarded(it) }
                         onDismissed()
                     }
 
-                    override fun onAdFailedToShowFullScreenContent(adError: AdError) {
-                        Log.w(TAG, "Rewarded failed to show: ${adError.message}")
-                        rewardedAd = null
-                        preloadRewarded(activity)
+                    override fun onAdFailedToShowFullScreenContent(
+                        error: AdError
+                    ) {
+                        Log.e(TAG, "Rewarded show error: ${error.message}")
+                        appContext?.let { preloadRewarded(it) }
                         onDismissed()
                     }
                 }
+
+            try {
                 ad.show(activity) {
-                    onRewardEarned()
+                    if (!rewardEarned) {
+                        rewardEarned = true
+                        onRewardEarned()
+                    }
                 }
-            } catch (t: Throwable) {
-                Log.e(TAG, "Error showing rewarded ad", t)
-                rewardedAd = null
-                preloadRewarded(activity)
-                onRewardEarned()
+            } catch (e: Exception) {
+                Log.e(TAG, "Rewarded exception", e)
+                appContext?.let { preloadRewarded(it) }
                 onDismissed()
             }
-        } else {
-            preloadRewarded(activity)
-            onRewardEarned()
-            onDismissed()
         }
     }
 }
 
 private class BannerAdHolder(context: Context) {
+
     val container = FrameLayout(context)
-    val adView = AdView(context)
-    val handler = Handler(Looper.getMainLooper())
+    private val adView = AdView(context)
+
+    private val handler = Handler(Looper.getMainLooper())
+
     var hasLoaded = false
     var isLoading = false
     var isDisposed = false
-    var retryCount = 0
-    var lastSdkTrigger = false
+
+    private var retryCount = 0
     private var pendingRetry: Runnable? = null
 
     init {
@@ -302,123 +349,158 @@ private class BannerAdHolder(context: Context) {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        val dm = context.resources.displayMetrics
-        val density = if (dm.density > 0f) dm.density else 1f
-        val widthDp = (dm.widthPixels / density).toInt().coerceAtLeast(320)
-        val bannerSize = try {
-            AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(context, widthDp)
-        } catch (_: Throwable) {
+
+        val density = context.resources.displayMetrics.density
+            .takeIf { it > 0f } ?: 1f
+
+        val widthDp = (
+            context.resources.displayMetrics.widthPixels / density
+        ).toInt().coerceAtLeast(320)
+
+        val size = try {
+            AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+                context,
+                widthDp
+            )
+        } catch (e: Exception) {
+            Log.e("TopBannerAd", "Ad size error", e)
             AdSize.BANNER
         }
-        adView.setAdSize(bannerSize)
+
         adView.adUnitId = AdManager.BANNER_ID
+        adView.setAdSize(size)
+
         adView.adListener = object : AdListener() {
+
             override fun onAdLoaded() {
                 hasLoaded = true
                 isLoading = false
                 retryCount = 0
+
                 pendingRetry?.let { handler.removeCallbacks(it) }
                 pendingRetry = null
-                container.visibility = View.VISIBLE
+
+                container.visibility = android.view.View.VISIBLE
+
+                Log.d("TopBannerAd", "Banner loaded")
             }
 
             override fun onAdFailedToLoad(error: LoadAdError) {
                 isLoading = false
-                Log.w("TopBannerAd", "Banner failed (${error.code}): ${error.message}")
+
+                Log.e(
+                    "TopBannerAd",
+                    "Banner error ${error.code}: ${error.message}"
+                )
+
                 if (isDisposed || hasLoaded) return
+
                 if (retryCount < 4) {
-                    val delayMs = when (retryCount) {
-                        0 -> 3000L
-                        1 -> 7000L
-                        2 -> 15000L
-                        else -> 30000L
-                    }
-                    retryCount++
-                    pendingRetry?.let { handler.removeCallbacks(it) }
-                    val r = Runnable {
+                    val delays = longArrayOf(
+                        3000L, 7000L, 15000L, 30000L
+                    )
+
+                    val delay = delays[retryCount++]
+
+                    val retry = Runnable {
                         pendingRetry = null
-                        loadIfNeeded(resetVisibility = false)
+                        loadIfNeeded()
                     }
-                    pendingRetry = r
-                    handler.postDelayed(r, delayMs)
+
+                    pendingRetry = retry
+                    handler.postDelayed(retry, delay)
                 } else {
-                    container.visibility = View.GONE
+                    container.visibility = android.view.View.GONE
                 }
             }
         }
-        val adParams = FrameLayout.LayoutParams(
+
+        val params = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER_HORIZONTAL
         )
-        container.addView(adView, adParams)
+
+        container.addView(adView, params)
     }
 
-    fun loadIfNeeded(resetVisibility: Boolean) {
+    fun loadIfNeeded() {
         if (isDisposed || hasLoaded || isLoading) return
-        if (resetVisibility) {
-            container.visibility = View.VISIBLE
-        }
+
         isLoading = true
+        container.visibility = android.view.View.VISIBLE
+
         try {
             adView.loadAd(AdRequest.Builder().build())
-        } catch (t: Throwable) {
+        } catch (e: Exception) {
             isLoading = false
-            Log.e("TopBannerAd", "Error loading banner", t)
+            Log.e("TopBannerAd", "Banner load exception", e)
         }
     }
 
     fun resume() {
-        try {
-            adView.resume()
-        } catch (_: Throwable) {
+        if (!isDisposed) {
+            try {
+                adView.resume()
+            } catch (e: Exception) {
+                Log.e("TopBannerAd", "Resume error", e)
+            }
         }
     }
 
     fun dispose() {
+        if (isDisposed) return
+
         isDisposed = true
+
         pendingRetry?.let { handler.removeCallbacks(it) }
         pendingRetry = null
         handler.removeCallbacksAndMessages(null)
+
         try {
             adView.pause()
             adView.destroy()
-        } catch (_: Throwable) {
+        } catch (e: Exception) {
+            Log.e("TopBannerAd", "Dispose error", e)
         }
     }
 }
 
 @Composable
 fun TopBannerAd(modifier: Modifier = Modifier) {
-    val sdkReady = AdManager.isSdkInitialized
-    val holderRef = remember { arrayOfNulls<BannerAdHolder>(1) }
+
+    val holder = remember {
+        mutableHolder()
+    }
 
     DisposableEffect(Unit) {
-        holderRef[0]?.resume()
+        holder.value?.resume()
+
         onDispose {
-            holderRef[0]?.dispose()
-            holderRef[0] = null
+            holder.value?.dispose()
+            holder.value = null
         }
     }
 
     AndroidView(
         modifier = modifier,
-        factory = { ctx ->
-            val holder = BannerAdHolder(ctx)
-            holderRef[0] = holder
-            holder.lastSdkTrigger = sdkReady
-            holder.loadIfNeeded(resetVisibility = true)
-            holder.container
+
+        factory = { context ->
+            val banner = BannerAdHolder(context)
+            holder.value = banner
+            banner.loadIfNeeded()
+            banner.container
         },
+
         update = {
-            val holder = holderRef[0]
-            if (holder != null && sdkReady && !holder.lastSdkTrigger) {
-                holder.lastSdkTrigger = true
-                if (!holder.hasLoaded && !holder.isLoading) {
-                    holder.retryCount = 0
-                    holder.loadIfNeeded(resetVisibility = true)
+            holder.value?.let { banner ->
+                if (!banner.hasLoaded && !banner.isLoading) {
+                    banner.loadIfNeeded()
                 }
             }
         }
     )
 }
+
+private fun mutableHolder() =
+    androidx.compose.runtime.mutableStateOf<BannerAdHolder?>(null)
